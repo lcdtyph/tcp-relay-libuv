@@ -6,16 +6,36 @@
 #include "server.h"
 #include "log.h"
 
+static void handle_close_cb(uv_handle_t* handle) {
+    log_trace("enter handle_close_cb");
+    free(handle);
+}
+
+static void stream_shutdown_cb(uv_shutdown_t* req, int status) {
+    log_trace("enter stream_shutdown_cb");
+    if (status < 0) {
+        log_error("shutdown failed: %s", uv_strerror(status));
+    }
+    uv_stream_t *stream = req->handle;
+    uv_close((uv_handle_t *)stream, handle_close_cb);
+    free(req);
+}
+
 listen_t *listen_new(uv_loop_t *loop, char *host, uint16_t port) {
     listen_t *lis = (listen_t *)malloc(sizeof(listen_t));
-    uv_tcp_init(loop, &lis->socket);
+    lis->socket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
+    uv_tcp_init(loop, lis->socket);
     strncpy(lis->target_host, host, 256);
     snprintf(lis->target_port, 16, "%hu", port);
-    lis->socket.data = lis;
+    lis->socket->data = lis;
     return lis;
 }
 
 void listen_destroy(listen_t *listen) {
+    log_trace("destroying: %p", listen);
+    listen->socket->data = NULL;
+    uv_close((uv_handle_t *)listen->socket, handle_close_cb);
+
     free(listen);
 }
 
@@ -33,25 +53,12 @@ peer_t *peer_new(uv_loop_t *loop) {
     return peer;
 }
 
-static void peer_close_cb(uv_handle_t* handle) {
-    free(handle);
-}
-
-static void peer_shutdown_cb(uv_shutdown_t* req, int status) {
-    if (status < 0) {
-    }
-    uv_tcp_t *socket = (uv_tcp_t *)req->data;
-    free(req);
-    uv_close((uv_handle_t *)socket, peer_close_cb);
-}
-
 void peer_destroy(peer_t *peer) {
     buffer_destroy(peer->buf);
 
     peer->socket->data = NULL;
     uv_shutdown_t *req = (uv_shutdown_t *)malloc(sizeof(uv_shutdown_t));
-    req->data = peer->socket;
-    uv_shutdown(req, (uv_stream_t *)peer->socket, peer_shutdown_cb);
+    uv_shutdown(req, (uv_stream_t *)peer->socket, stream_shutdown_cb);
 
     free(peer);
 }
@@ -121,7 +128,7 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
         goto __sock_read_done_clean_up;
     }
 
-    src->buf->length += nread;
+    buffer_resize(src->buf, buffer_size(src->buf) + nread);
     uv_read_stop(stream);
     req = (uv_write_t *)malloc(sizeof(uv_write_t));
     req->data = src;
@@ -237,7 +244,16 @@ __on_conn_bad_state:
 
 void start_server(listen_t *lis, uint16_t bind_port) {
     struct sockaddr_in6 bind_addr;
+    int ret = 0;
     uv_ip6_addr("::", bind_port, &bind_addr);
-    uv_tcp_bind(&lis->socket, (struct sockaddr *)&bind_addr, 0);
-    uv_listen((uv_stream_t *)&lis->socket, 2048, on_connection);
+    ret = uv_tcp_bind(lis->socket, (struct sockaddr *)&bind_addr, 0);
+    if (ret) {
+        log_fatal("uv_tcp_bind error: %s", uv_strerror(ret));
+        abort();
+    }
+    ret = uv_listen((uv_stream_t *)lis->socket, 2048, on_connection);
+    if (ret) {
+        log_fatal("uv_listen error: %s", uv_strerror(ret));
+        abort();
+    }
 }

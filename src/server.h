@@ -6,7 +6,7 @@
 #include "buffer.h"
 
 typedef struct listen_s {
-    uv_tcp_t socket;
+    uv_tcp_t *socket;
     char target_host[256];
     char target_port[16];
 } listen_t;
