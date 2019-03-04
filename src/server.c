@@ -256,4 +256,5 @@ void start_server(listen_t *lis, uint16_t bind_port) {
         log_fatal("uv_listen error: %s", uv_strerror(ret));
         abort();
     }
+    log_info("listening on [::]:%hu", bind_port);
 }
