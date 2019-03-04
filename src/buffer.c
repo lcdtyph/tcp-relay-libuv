@@ -33,6 +33,20 @@ void buffer_destruct(buffer_t *buf) {
     free(buf->data);
 }
 
+void buffer_resize(buffer_t *buf, size_t new_len) {
+    buffer_reserve(buf, new_len);
+    buf->length = new_len;
+}
+
+void buffer_reserve(buffer_t *buf, size_t new_capacity) {
+    if (new_capacity <= buffer_capacity(buf)) {
+        return;
+    }
+    buf->data = (uint8_t *)realloc(buf->data, new_capacity);
+    memset(buffer_data(buf) + buffer_capacity(buf), 0, new_capacity - buffer_capacity(buf));
+    buf->capacity = new_capacity;
+}
+
 void buffer_prepend(buffer_t *buf, uint8_t *data, size_t len) {
     buffer_insert(buf, 0, data, len);
 }
@@ -70,26 +84,16 @@ size_t buffer_capacity(buffer_t *buf) {
     return buf->capacity;
 }
 
-void buffer_reserve(buffer_t *buf, size_t new_capacity) {
-    if (new_capacity <= buffer_capacity(buf)) {
-        return;
-    }
-    buf->data = (uint8_t *)realloc(buf->data, new_capacity);
-    memset(buffer_data(buf) + buffer_capacity(buf), 0, new_capacity - buffer_capacity(buf));
-    buf->capacity = new_capacity;
-}
-
 void buffer_insert(buffer_t *buf, size_t pos, uint8_t *data, size_t len) {
     size_t new_size = max(buffer_size(buf), pos);
-    buffer_reserve(buf, new_size + len);
-    buf->length = new_size;
+    buffer_resize(buf, new_size + len);
+    uint8_t *old_end = buffer_end(buf) - len;
 
     uint8_t *ins_pos = buffer_data(buf) + pos;
-    if (pos < buffer_size(buf)) {
-        memcpy(buffer_end(buf), ins_pos, buffer_size(buf) - pos);
+    if (ins_pos < old_end) {
+        memmove(ins_pos + len, ins_pos, old_end - ins_pos);
     }
-    memmove(ins_pos, data, len);
-    buf->length += len;
+    memcpy(ins_pos, data, len);
 }
 
 void buffer_erase(buffer_t *buf, size_t pos, size_t len) {

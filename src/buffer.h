@@ -15,6 +15,9 @@ void buffer_construct(buffer_t *buf, size_t capacity);
 void buffer_destroy(buffer_t *buf);
 void buffer_destruct(buffer_t *buf);
 
+void buffer_resize(buffer_t *buf, size_t new_len);
+void buffer_reserve(buffer_t *buf, size_t new_capacity);
+
 void buffer_prepend(buffer_t *buf, uint8_t *data, size_t len);
 void buffer_append(buffer_t *buf, uint8_t *data, size_t len);
 void buffer_insert(buffer_t *buf, size_t pos, uint8_t *data, size_t len);
@@ -28,7 +31,5 @@ uint8_t *buffer_end(buffer_t *buf);
 size_t buffer_size(buffer_t *buf);
 size_t buffer_remain(buffer_t *buf);
 size_t buffer_capacity(buffer_t *buf);
-
-void buffer_reserve(buffer_t *buf, size_t new_capacity);
 
 #endif // __TCP_REPLY_BUFFER_H__
