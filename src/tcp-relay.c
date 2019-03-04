@@ -12,12 +12,17 @@ struct options {
     int loglevel;
 };
 
+void handle_close_cb(uv_handle_t *handle) {
+    log_trace("handle_close_cb: %p", handle);
+}
+
 void signal_cb(uv_signal_t* handle, int signum) {
     uv_loop_t *loop = handle->loop;
     listen_t *lis = listen_detag(handle->data);
 
     log_info("sigint received, stop listening socket");
     listen_destroy(lis);
+    uv_close((uv_handle_t *)handle, handle_close_cb);
 }
 
 void parse_options(struct options *option, int argc, char *argv[]);
@@ -39,6 +44,8 @@ int main(int argc, char *argv[]) {
     start_server(server, opt.bind_port);
 
     uv_run(loop, UV_RUN_DEFAULT);
+
+    uv_loop_close(loop);
 
     return 0;
 }

@@ -189,7 +189,7 @@ static void resolve_done(uv_getaddrinfo_t* req, int status, struct addrinfo* res
         if (status == UV_ECANCELED) {
             log_trace("resolve canceled");
         } else {
-            log_error("resolve error: %d", status);
+            log_error("resolve error: %s", uv_strerror(status));
         }
         goto __on_resolve_done_bad_state;
     }
