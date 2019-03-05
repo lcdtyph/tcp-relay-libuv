@@ -3,11 +3,7 @@ project(tcp-relay)
 
 set(CMAKE_C_FLAGS_DEBUG "-g")
 
-add_definitions(-DLOG_USE_COLOR)
-list(APPEND LOGC_SRCS log.c/src/log.c)
-
-add_library(log.c STATIC ${LOGC_SRCS})
-target_include_directories(log.c PUBLIC log.c/src)
+add_subdirectory(log.c)
 
 list(APPEND SRCS
     src/buffer.c
