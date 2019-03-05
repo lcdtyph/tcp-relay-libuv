@@ -15,6 +15,7 @@ void buffer_construct(buffer_t *buf, size_t capacity);
 void buffer_destroy(buffer_t *buf);
 void buffer_destruct(buffer_t *buf);
 
+void buffer_clear(buffer_t *buf);
 void buffer_resize(buffer_t *buf, size_t new_len);
 void buffer_reserve(buffer_t *buf, size_t new_capacity);
 

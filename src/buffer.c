@@ -33,6 +33,10 @@ void buffer_destruct(buffer_t *buf) {
     free(buf->data);
 }
 
+void buffer_clear(buffer_t *buf) {
+    buf->length = 0;
+}
+
 void buffer_resize(buffer_t *buf, size_t new_len) {
     buffer_reserve(buf, new_len);
     buf->length = new_len;
