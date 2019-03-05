@@ -106,5 +106,11 @@ void parse_options(struct options *option, int argc, char *argv[]) {
         abort();
     }
     strncpy(option->target_host, first_colon + 1, sizeof option->target_host);
+    if (first_colon[1] == '[' && second_colon[-1] == ']') {
+        char *host = option->target_host;
+        int host_len = strlen(host) - 2;
+        memmove(host, host + 1, host_len);
+        host[host_len] = '\0';
+    }
     *second_colon = ':';
 }

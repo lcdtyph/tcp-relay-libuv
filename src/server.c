@@ -165,7 +165,7 @@ static void connect_target_done(uv_connect_t* req, int status) {
     }
 
     if (status < 0) {
-        log_error("cannot connect to target: %d", status);
+        log_error("cannot connect to target: %s", uv_strerror(status));
         goto __on_connect_target_done_bad_state;
     }
 
