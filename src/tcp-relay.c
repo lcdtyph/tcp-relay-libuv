@@ -2,8 +2,8 @@
 #include <string.h>
 #include <getopt.h>
 
+#include "log.c/log.h"
 #include "server.h"
-#include "log.h"
 
 struct options {
     uint16_t bind_port;

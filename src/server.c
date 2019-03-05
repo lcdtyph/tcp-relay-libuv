@@ -4,8 +4,8 @@
 
 #define BUF_SIZE 4096
 
+#include "log.c/log.h"
 #include "server.h"
-#include "log.h"
 
 static void handle_close_cb(uv_handle_t* handle) {
     log_trace("enter handle_close_cb");
