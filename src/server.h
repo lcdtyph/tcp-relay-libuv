@@ -3,12 +3,15 @@
 
 #include <uv.h>
 
+#include <tbox/tbox.h>
+
 #include "buffer.h"
 
 typedef struct server_s {
     uv_tcp_t *socket;
     char target_host[256];
     char target_port[16];
+    tb_hash_set_ref_t conn_set;
 } server_t;
 
 server_t *server_new(uv_loop_t *loop, char *host, uint16_t port);
@@ -31,6 +34,8 @@ peer_t *peer_detag(void *ptr);
 struct conn_s {
     peer_t *client;
     peer_t *target;
+    server_t *server;
+    int drop_state;
 };
 
 conn_t *conn_new_with_client(peer_t *client);

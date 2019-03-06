@@ -21,19 +21,44 @@ server_t *server_new(uv_loop_t *loop, char *host, uint16_t port) {
     strncpy(lis->target_host, host, 256);
     snprintf(lis->target_port, 16, "%hu", port);
     lis->socket->data = lis;
+    lis->conn_set = tb_hash_set_init(0, tb_element_ptr(tb_null, tb_null));
+    log_debug("conn set: %p", lis->conn_set);
     return lis;
 }
 
 void server_destroy(server_t *listen) {
-    log_trace("destroying: %p", listen);
+    log_trace("destroying server: %p", listen);
     listen->socket->data = NULL;
     uv_close((uv_handle_t *)listen->socket, handle_close_cb);
+
+    tb_for_all(tb_pointer_t, conn, listen->conn_set) {
+        log_trace("destroying conn: %p", conn);
+        conn_destroy(conn);
+    }
+    tb_hash_set_exit(listen->conn_set);
 
     free(listen);
 }
 
 server_t *server_detag(void *ptr) {
     return (server_t *)ptr;
+}
+
+conn_t *server_new_conn(server_t *server, peer_t *client) {
+    conn_t *conn = conn_new_with_client(client);
+    conn->server = server;
+    tb_hash_set_insert(server->conn_set, conn);
+    log_debug("new conn: %p, current conn size: %zu", conn, tb_hash_set_size(server->conn_set));
+    return conn;
+}
+
+void server_drop_conn(server_t *server, conn_t *conn) {
+    log_debug("drop conn: %p", conn);
+    if (tb_hash_set_get(server->conn_set, conn)) {
+        log_trace("found conn: %p", conn);
+        tb_hash_set_remove(server->conn_set, conn);
+        conn_destroy(conn);
+    }
 }
 
 peer_t *peer_new(uv_loop_t *loop) {
@@ -46,14 +71,17 @@ peer_t *peer_new(uv_loop_t *loop) {
     return peer;
 }
 
+void peer_handle_close_cb(uv_handle_t *handle) {
+    peer_t *peer = peer_detag(handle->data);
+    free(handle);
+    free(peer);
+}
+
 void peer_destroy(peer_t *peer) {
     buffer_destroy(peer->buf);
 
-    peer->socket->data = NULL;
     uv_read_stop((uv_stream_t *)peer->socket);
-    uv_close((uv_handle_t *)peer->socket, handle_close_cb);
-
-    free(peer);
+    uv_close((uv_handle_t *)peer->socket, peer_handle_close_cb);
 }
 
 peer_t *peer_detag(void *ptr) {
@@ -69,6 +97,7 @@ conn_t *conn_new_with_client(peer_t *client) {
 }
 
 void conn_destroy(conn_t *conn) {
+    log_trace("destroying conn: %p", conn);
     peer_destroy(conn->client);
     peer_destroy(conn->target);
     free(conn);
@@ -82,19 +111,29 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
 static void alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);
 
 static void sock_write_done(uv_write_t* req, int status) {
+    uv_loop_t *loop = req->handle->loop;
+    server_t *server = server_detag(uv_loop_get_data(loop));
     peer_t *src = peer_detag(req->data);
     conn_t *conn = src->conn;
     free(req);
     if (status) {
+        if (status == UV_ECANCELED) {
+            log_info("write operation canceled %p", conn);
+            return;
+        }
         log_error("sock write error: %s", uv_strerror(status));
-        conn_destroy(conn);
+        server_drop_conn(server, conn);
         return;
     }
     buffer_clear(src->buf);
-    uv_read_start((uv_stream_t *)src->socket, alloc_cb, sock_read_done);
+    if (!uv_is_closing((uv_handle_t *)src->socket)) {
+        uv_read_start((uv_stream_t *)src->socket, alloc_cb, sock_read_done);
+    }
 }
 
 static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+    uv_loop_t *loop = stream->loop;
+    server_t *server = server_detag(uv_loop_get_data(loop));
     log_trace("sock read done");
     if (nread == 0) {
         log_trace("read 0 byte");
@@ -110,6 +149,10 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
     peer_t *dst = (src == conn->client) ? conn->target : conn->client;
     uv_write_t *req = NULL;
     int ret = 0;
+
+    if (uv_is_closing((uv_handle_t *)src->socket)) {
+        return;
+    }
 
     if (nread < 0) {
         if (nread == UV_EOF) {
@@ -135,8 +178,7 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
     return;
 __sock_read_done_clean_up:
     if (req) { free(req); }
-    conn_destroy(conn);
-
+    server_drop_conn(server, conn);
 }
 
 static void alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
@@ -148,31 +190,43 @@ static void alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) 
 
 static void connect_target_done(uv_connect_t* req, int status) {
     log_trace("connected to target");
+    uv_loop_t *loop = req->handle->loop;
     conn_t *conn = conn_detag(req->data);
+    server_t *server = server_detag(uv_loop_get_data(loop));
+    int ret = 0;
     free(req);
-    if (!conn) { /* closing */
-        return;
-    }
 
     if (status < 0) {
+        if (status == UV_ECANCELED) {
+            log_info("connect req canceled %p", conn);
+            return;
+        }
         log_error("cannot connect to target: %s", uv_strerror(status));
         goto __on_connect_target_done_bad_state;
     }
 
-    uv_read_start((uv_stream_t *)conn->client->socket, alloc_cb, sock_read_done);
-    uv_read_start((uv_stream_t *)conn->target->socket, alloc_cb, sock_read_done);
+    ret = uv_read_start((uv_stream_t *)conn->client->socket, alloc_cb, sock_read_done);
+    if (ret) {
+        log_error("uv_read_start error: %s", uv_strerror(ret));
+        goto __on_connect_target_done_bad_state;
+    }
+    ret = uv_read_start((uv_stream_t *)conn->target->socket, alloc_cb, sock_read_done);
+    if (ret) {
+        log_error("uv_read_start error: %s", uv_strerror(ret));
+        goto __on_connect_target_done_bad_state;
+    }
 
     return;
 __on_connect_target_done_bad_state:
-    conn_destroy(conn);
+    server_drop_conn(server, conn);
 }
 
 static void resolve_done(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
     log_trace("resolve done");
     uv_loop_t *loop = req->loop;
-    peer_t *client = peer_detag(req->data);
+    conn_t *conn = conn_detag(req->data);
+    server_t *server = server_detag(uv_loop_get_data(loop));
     uv_connect_t *conn_req = NULL;
-    conn_t *conn = NULL;
     int ret = 0;
     free(req);
     if (status) {
@@ -185,7 +239,6 @@ static void resolve_done(uv_getaddrinfo_t* req, int status, struct addrinfo* res
         goto __on_resolve_done_bad_state;
     }
 
-    conn = conn_new_with_client(client);
     conn_req = (uv_connect_t *)malloc(sizeof(uv_connect_t));
     conn_req->data = conn;
     ret = uv_tcp_connect(conn_req, conn->target->socket, res->ai_addr, connect_target_done);
@@ -199,14 +252,13 @@ static void resolve_done(uv_getaddrinfo_t* req, int status, struct addrinfo* res
 __on_resolve_done_bad_state:
     if (res) { uv_freeaddrinfo(res); }
     if (conn_req) { free(conn_req); }
-    if (conn) { conn_destroy(conn); }
-    else { peer_destroy(client); }
+    if (conn) { server_drop_conn(server, conn); }
 }
 
 static void on_connection(uv_stream_t *server, int status) {
     log_trace("got connection");
     uv_loop_t *loop = server->loop;
-    server_t *lis = server_detag(server->data);
+    server_t *lis = server_detag(uv_loop_get_data(loop));
     peer_t *client = NULL;
     uv_getaddrinfo_t *resolv_req = NULL;
     int ret = 0;
@@ -215,6 +267,7 @@ static void on_connection(uv_stream_t *server, int status) {
         goto __on_conn_bad_state;
     }
     client = peer_new(server->loop);
+    conn_t *conn = server_new_conn(lis, client);
     ret = uv_accept(server, (uv_stream_t *)client->socket);
     if (ret) {
         log_error("on accept error: %d", ret);
@@ -222,7 +275,7 @@ static void on_connection(uv_stream_t *server, int status) {
     }
 
     resolv_req = (uv_getaddrinfo_t *)malloc(sizeof(uv_getaddrinfo_t));
-    resolv_req->data = client;
+    resolv_req->data = conn;
     ret = uv_getaddrinfo(loop, resolv_req, resolve_done, lis->target_host, lis->target_port, NULL);
     if (ret) {
         log_error("on accept error: %d", ret);
@@ -231,7 +284,8 @@ static void on_connection(uv_stream_t *server, int status) {
 
     return;
 __on_conn_bad_state:
-    if (client) { peer_destroy(client); }
+    if (conn) { server_drop_conn(lis, conn); }
+    if (resolv_req) { free(resolv_req); }
 }
 
 void start_server(server_t *lis, uint16_t bind_port) {

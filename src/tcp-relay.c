@@ -2,6 +2,8 @@
 #include <string.h>
 #include <getopt.h>
 
+#include <tbox/tbox.h>
+
 #include "log.c/log.h"
 #include "server.h"
 
@@ -18,7 +20,7 @@ void handle_close_cb(uv_handle_t *handle) {
 
 void signal_cb(uv_signal_t* handle, int signum) {
     uv_loop_t *loop = handle->loop;
-    server_t *lis = server_detag(handle->data);
+    server_t *lis = server_detag(uv_loop_get_data(loop));
 
     log_info("sigint received, stop listening socket");
     server_destroy(lis);
@@ -31,6 +33,8 @@ int main(int argc, char *argv[]) {
     struct options opt;
     uv_loop_t *loop = uv_default_loop();
 
+    tb_init(tb_null, tb_null);
+
     parse_options(&opt, argc, argv);
     log_set_level(opt.loglevel);
     log_info("forward to [%s]:%hu", opt.target_host, opt.target_port);
@@ -40,12 +44,14 @@ int main(int argc, char *argv[]) {
     uv_signal_start_oneshot(&signal_watcher, signal_cb, SIGINT);
 
     server_t *server = server_new(loop, opt.target_host, opt.target_port);
-    signal_watcher.data = server;
+    uv_loop_set_data(loop, server);
     start_server(server, opt.bind_port);
 
     uv_run(loop, UV_RUN_DEFAULT);
 
     uv_loop_close(loop);
+
+    tb_exit();
 
     return 0;
 }

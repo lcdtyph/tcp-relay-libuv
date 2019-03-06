@@ -11,7 +11,7 @@ list(APPEND SRCS
     src/tcp-relay.c
     )
 
-list(APPEND DEPS uv log.c)
+list(APPEND DEPS uv log.c tbox)
 
 include_directories(src/)
 
