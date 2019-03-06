@@ -12,16 +12,6 @@ static void handle_close_cb(uv_handle_t* handle) {
     free(handle);
 }
 
-static void stream_shutdown_cb(uv_shutdown_t* req, int status) {
-    log_trace("enter stream_shutdown_cb");
-    if (status < 0) {
-        log_error("shutdown failed: %s", uv_strerror(status));
-    }
-    uv_stream_t *stream = req->handle;
-    uv_close((uv_handle_t *)stream, handle_close_cb);
-    free(req);
-}
-
 listen_t *listen_new(uv_loop_t *loop, char *host, uint16_t port) {
     listen_t *lis = (listen_t *)malloc(sizeof(listen_t));
     lis->socket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
@@ -58,8 +48,8 @@ void peer_destroy(peer_t *peer) {
     buffer_destroy(peer->buf);
 
     peer->socket->data = NULL;
-    uv_shutdown_t *req = (uv_shutdown_t *)malloc(sizeof(uv_shutdown_t));
-    uv_shutdown(req, (uv_stream_t *)peer->socket, stream_shutdown_cb);
+    uv_read_stop((uv_stream_t *)peer->socket);
+    uv_close((uv_handle_t *)peer->socket, handle_close_cb);
 
     free(peer);
 }
@@ -91,16 +81,14 @@ static void alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);
 
 static void sock_write_done(uv_write_t* req, int status) {
     peer_t *src = peer_detag(req->data);
-    if (!src) { /* closing */
-        return;
-    }
     conn_t *conn = src->conn;
     free(req);
     if (status) {
-        log_error("sock write error: %d", status);
+        log_error("sock write error: %s", uv_strerror(status));
         conn_destroy(conn);
         return;
     }
+    buffer_clear(src->buf);
     uv_read_start((uv_stream_t *)src->socket, alloc_cb, sock_read_done);
 }
 
@@ -111,10 +99,11 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
         return;
     }
 
-    peer_t *src = peer_detag(stream->data);
-    if (!src) { /* closing */
+    if (nread == UV_ECANCELED) { /* closing */
+        log_info("read operation canceled: %p", stream);
         return;
     }
+    peer_t *src = peer_detag(stream->data);
     conn_t *conn = src->conn;
     peer_t *dst = (src == conn->client) ? conn->target : conn->client;
     uv_write_t *req = NULL;
@@ -124,7 +113,7 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
         if (nread == UV_EOF) {
             log_trace("stream ends");
         } else {
-            log_error("sock read error: %d", nread);
+            log_error("sock read error: %s", uv_strerror(nread));
         }
         goto __sock_read_done_clean_up;
     }
@@ -137,14 +126,13 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
     ret = uv_write(req, (uv_stream_t *)dst->socket, &src->write_buf, 1, sock_write_done);
 
     if (ret) {
-        log_error("uv_write error: %d", ret);
-        free(req);
+        log_error("uv_write error: %s", uv_strerror(ret));
         goto __sock_read_done_clean_up;
     }
 
     return;
 __sock_read_done_clean_up:
-    uv_read_stop(stream);
+    if (req) { free(req); }
     conn_destroy(conn);
 
 }
@@ -188,6 +176,7 @@ static void resolve_done(uv_getaddrinfo_t* req, int status, struct addrinfo* res
     if (status) {
         if (status == UV_ECANCELED) {
             log_trace("resolve canceled");
+            return;
         } else {
             log_error("resolve error: %s", uv_strerror(status));
         }
