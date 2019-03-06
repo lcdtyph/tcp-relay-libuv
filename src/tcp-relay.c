@@ -18,10 +18,10 @@ void handle_close_cb(uv_handle_t *handle) {
 
 void signal_cb(uv_signal_t* handle, int signum) {
     uv_loop_t *loop = handle->loop;
-    listen_t *lis = listen_detag(handle->data);
+    server_t *lis = server_detag(handle->data);
 
     log_info("sigint received, stop listening socket");
-    listen_destroy(lis);
+    server_destroy(lis);
     uv_close((uv_handle_t *)handle, handle_close_cb);
 }
 
@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
     uv_signal_init(loop, &signal_watcher);
     uv_signal_start_oneshot(&signal_watcher, signal_cb, SIGINT);
 
-    listen_t *server = listen_new(loop, opt.target_host, opt.target_port);
+    server_t *server = server_new(loop, opt.target_host, opt.target_port);
     signal_watcher.data = server;
     start_server(server, opt.bind_port);
 

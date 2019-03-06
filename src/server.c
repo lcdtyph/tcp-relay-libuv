@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <tbox/tbox.h>
+
 #define BUF_SIZE 4096
 
 #include "log.c/log.h"
@@ -12,8 +14,8 @@ static void handle_close_cb(uv_handle_t* handle) {
     free(handle);
 }
 
-listen_t *listen_new(uv_loop_t *loop, char *host, uint16_t port) {
-    listen_t *lis = (listen_t *)malloc(sizeof(listen_t));
+server_t *server_new(uv_loop_t *loop, char *host, uint16_t port) {
+    server_t *lis = (server_t *)malloc(sizeof(server_t));
     lis->socket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
     uv_tcp_init(loop, lis->socket);
     strncpy(lis->target_host, host, 256);
@@ -22,7 +24,7 @@ listen_t *listen_new(uv_loop_t *loop, char *host, uint16_t port) {
     return lis;
 }
 
-void listen_destroy(listen_t *listen) {
+void server_destroy(server_t *listen) {
     log_trace("destroying: %p", listen);
     listen->socket->data = NULL;
     uv_close((uv_handle_t *)listen->socket, handle_close_cb);
@@ -30,8 +32,8 @@ void listen_destroy(listen_t *listen) {
     free(listen);
 }
 
-listen_t *listen_detag(void *ptr) {
-    return (listen_t *)ptr;
+server_t *server_detag(void *ptr) {
+    return (server_t *)ptr;
 }
 
 peer_t *peer_new(uv_loop_t *loop) {
@@ -204,7 +206,7 @@ __on_resolve_done_bad_state:
 static void on_connection(uv_stream_t *server, int status) {
     log_trace("got connection");
     uv_loop_t *loop = server->loop;
-    listen_t *lis = listen_detag(server->data);
+    server_t *lis = server_detag(server->data);
     peer_t *client = NULL;
     uv_getaddrinfo_t *resolv_req = NULL;
     int ret = 0;
@@ -232,7 +234,7 @@ __on_conn_bad_state:
     if (client) { peer_destroy(client); }
 }
 
-void start_server(listen_t *lis, uint16_t bind_port) {
+void start_server(server_t *lis, uint16_t bind_port) {
     struct sockaddr_in6 bind_addr;
     int ret = 0;
     uv_ip6_addr("::", bind_port, &bind_addr);

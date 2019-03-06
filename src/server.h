@@ -5,15 +5,15 @@
 
 #include "buffer.h"
 
-typedef struct listen_s {
+typedef struct server_s {
     uv_tcp_t *socket;
     char target_host[256];
     char target_port[16];
-} listen_t;
+} server_t;
 
-listen_t *listen_new(uv_loop_t *loop, char *host, uint16_t port);
-void listen_destroy(listen_t *listen);
-listen_t *listen_detag(void *ptr);
+server_t *server_new(uv_loop_t *loop, char *host, uint16_t port);
+void server_destroy(server_t *server);
+server_t *server_detag(void *ptr);
 
 typedef struct conn_s conn_t;
 
@@ -37,6 +37,6 @@ conn_t *conn_new_with_client(peer_t *client);
 void conn_destroy(conn_t *conn);
 conn_t *conn_detag(void *ptr);
 
-void start_server(listen_t *server, uint16_t port);
+void start_server(server_t *server, uint16_t port);
 
 #endif // __TCP_RELAY_SERVER_H__
