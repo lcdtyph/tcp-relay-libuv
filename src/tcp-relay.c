@@ -56,11 +56,12 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+void print_usage(const char *argv0);
 void parse_options(struct options *option, int argc, char *argv[]) {
     int opt;
     char *forward_string = NULL;
     option->loglevel = LOG_INFO;
-    while ((opt = getopt(argc, argv, ":L:v")) != -1) {
+    while ((opt = getopt(argc, argv, ":L:vh")) != -1) {
         switch (opt) {
         case 'L':
             forward_string = optarg;
@@ -71,6 +72,10 @@ void parse_options(struct options *option, int argc, char *argv[]) {
                 option->loglevel--;
             }
             break;
+
+        case 'h':
+            print_usage(argv[0]);
+            exit(0);
 
         case ':':
             log_fatal("option -%c needs a value", optopt);
@@ -119,4 +124,13 @@ void parse_options(struct options *option, int argc, char *argv[]) {
         host[host_len] = '\0';
     }
     *second_colon = ':';
+}
+
+void print_usage(const char *argv0) {
+    printf("%s -L <forward-string> [-v]\n", argv0);
+    puts("    -L <forward-string>    specific bind port and forward target");
+    puts("    -v                     verbose logging");
+    puts("    -h                     print this message");
+    puts("  forward-string");
+    puts("    <bind-port>:<target-host>:<target-port>");
 }
