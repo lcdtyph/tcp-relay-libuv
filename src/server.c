@@ -66,6 +66,7 @@ peer_t *peer_new(uv_loop_t *loop) {
     peer->conn = NULL;
     peer->socket = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
     uv_tcp_init(loop, peer->socket);
+    peer->write_req.data = peer;
     peer->socket->data = peer;
     peer->buf = buffer_new(BUF_SIZE);
     return peer;
@@ -115,7 +116,6 @@ static void sock_write_done(uv_write_t* req, int status) {
     server_t *server = server_detag(uv_loop_get_data(loop));
     peer_t *src = peer_detag(req->data);
     conn_t *conn = src->conn;
-    free(req);
     if (status) {
         if (status == UV_ECANCELED) {
             log_info("write operation canceled %p", conn);
@@ -147,7 +147,6 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
     peer_t *src = peer_detag(stream->data);
     conn_t *conn = src->conn;
     peer_t *dst = (src == conn->client) ? conn->target : conn->client;
-    uv_write_t *req = NULL;
     int ret = 0;
 
     if (uv_is_closing((uv_handle_t *)src->socket)) {
@@ -165,10 +164,8 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
 
     buffer_resize(src->buf, buffer_size(src->buf) + nread);
     uv_read_stop(stream);
-    req = (uv_write_t *)malloc(sizeof(uv_write_t));
-    req->data = src;
     src->write_buf = uv_buf_init((char *)buffer_data(src->buf), buffer_size(src->buf));
-    ret = uv_write(req, (uv_stream_t *)dst->socket, &src->write_buf, 1, sock_write_done);
+    ret = uv_write(&src->write_req, (uv_stream_t *)dst->socket, &src->write_buf, 1, sock_write_done);
 
     if (ret) {
         log_error("uv_write error: %s", uv_strerror(ret));
@@ -177,7 +174,6 @@ static void sock_read_done(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
 
     return;
 __sock_read_done_clean_up:
-    if (req) { free(req); }
     server_drop_conn(server, conn);
 }
 

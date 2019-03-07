@@ -23,6 +23,7 @@ typedef struct conn_s conn_t;
 typedef struct peer_s {
     conn_t     *conn;
     uv_tcp_t   *socket;
+    uv_write_t write_req;
     uv_buf_t   write_buf;
     buffer_t   *buf;
 } peer_t;
