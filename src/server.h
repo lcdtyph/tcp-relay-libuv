@@ -3,7 +3,7 @@
 
 #include <uv.h>
 
-#include <tbox/tbox.h>
+#include "hash_set.h"
 
 #include "buffer.h"
 
@@ -11,7 +11,7 @@ typedef struct server_s {
     uv_tcp_t *socket;
     char target_host[256];
     char target_port[16];
-    tb_hash_set_ref_t conn_set;
+    hash_set *conn_set;
 } server_t;
 
 server_t *server_new(uv_loop_t *loop, char *host, uint16_t port);

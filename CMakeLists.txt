@@ -8,13 +8,17 @@ find_package(Threads)
 
 add_subdirectory(log.c)
 
+add_library(uthash INTERFACE)
+target_include_directories(uthash INTERFACE uthash/include)
+
 list(APPEND SRCS
     src/buffer.c
     src/server.c
     src/tcp-relay.c
+    src/hash_set.c
     )
 
-list(APPEND DEPS uv log.c tbox Threads::Threads)
+list(APPEND DEPS uv log.c uthash Threads::Threads)
 
 if (UNIX)
     list(APPEND DEPS m)

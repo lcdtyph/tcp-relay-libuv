@@ -2,12 +2,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <tbox/tbox.h>
-
 #define BUF_SIZE 4096
 
 #include "log.c/log.h"
 #include "server.h"
+#include "hash_set.h"
 
 static void handle_close_cb(uv_handle_t* handle) {
     log_trace("enter handle_close_cb");
@@ -21,22 +20,23 @@ server_t *server_new(uv_loop_t *loop, char *host, uint16_t port) {
     strncpy(lis->target_host, host, 256);
     snprintf(lis->target_port, 16, "%hu", port);
     lis->socket->data = lis;
-    lis->conn_set = tb_hash_set_init(0, tb_element_ptr(tb_null, tb_null));
+    lis->conn_set = hash_set_new();
     log_debug("conn set: %p", lis->conn_set);
     return lis;
+}
+
+static void __destory_walk_cb(void *key, void *arg) {
+    conn_t *conn = (conn_t *)key;
+    log_trace("destroying conn: %p", conn);
+    conn_destroy(conn);
 }
 
 void server_destroy(server_t *listen) {
     log_trace("destroying server: %p", listen);
     listen->socket->data = NULL;
     uv_close((uv_handle_t *)listen->socket, handle_close_cb);
-
-    tb_for_all(tb_pointer_t, conn, listen->conn_set) {
-        log_trace("destroying conn: %p", conn);
-        conn_destroy(conn);
-    }
-    tb_hash_set_exit(listen->conn_set);
-
+    hash_set_walk(listen->conn_set, __destory_walk_cb, NULL);
+    hash_set_drop(listen->conn_set);
     free(listen);
 }
 
@@ -47,16 +47,16 @@ server_t *server_detag(void *ptr) {
 conn_t *server_new_conn(server_t *server, peer_t *client) {
     conn_t *conn = conn_new_with_client(client);
     conn->server = server;
-    tb_hash_set_insert(server->conn_set, conn);
-    log_debug("new conn: %p, current conn size: %zu", conn, tb_hash_set_size(server->conn_set));
+    hash_set_put(server->conn_set, conn);
+    log_debug("new conn: %p, current conn size: %zu", conn, hash_set_size(server->conn_set));
     return conn;
 }
 
 void server_drop_conn(server_t *server, conn_t *conn) {
     log_debug("drop conn: %p", conn);
-    if (tb_hash_set_get(server->conn_set, conn)) {
+    if (hash_set_get(server->conn_set, conn)) {
         log_trace("found conn: %p", conn);
-        tb_hash_set_remove(server->conn_set, conn);
+        hash_set_delete(server->conn_set, conn);
         conn_destroy(conn);
     }
 }

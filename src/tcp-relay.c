@@ -2,8 +2,6 @@
 #include <string.h>
 #include <getopt.h>
 
-#include <tbox/tbox.h>
-
 #include "log.c/log.h"
 #include "server.h"
 
@@ -33,8 +31,6 @@ int main(int argc, char *argv[]) {
     struct options opt;
     uv_loop_t *loop = uv_default_loop();
 
-    tb_init(tb_null, tb_null);
-
     parse_options(&opt, argc, argv);
     log_set_level(opt.loglevel);
     log_info("forward to [%s]:%hu", opt.target_host, opt.target_port);
@@ -50,8 +46,6 @@ int main(int argc, char *argv[]) {
     uv_run(loop, UV_RUN_DEFAULT);
 
     uv_loop_close(loop);
-
-    tb_exit();
 
     return 0;
 }
